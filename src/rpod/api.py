@@ -370,11 +370,9 @@ class RunPodAPI:
     def create_cpu_pod(
         self,
         name: str,
+        instance_id: str = "cpu3c-2-4",
         image: Optional[str] = None,
         template_id: Optional[str] = None,
-        instance_id: Optional[str] = None,
-        volume_size: int = 20,
-        volume_mount: str = "/workspace",
         container_disk: int = 20,
         datacenter_id: Optional[str] = None,
         env: Optional[dict[str, str]] = None,
@@ -383,13 +381,12 @@ class RunPodAPI:
 
         Args:
             name: Pod name
+            instance_id: CPU instance type (e.g., "cpu3c-2-4"). Required.
+                Format: {flavor}-{vcpus}-{memGB}. Flavors: cpu3c, cpu3g, cpu3m, cpu5c, cpu5g, cpu5m.
             image: Docker image (required unless template_id is provided)
             template_id: RunPod template ID (optional)
-            instance_id: CPU instance type (e.g., "cpu3c-2-4")
-            volume_size: Persistent volume size in GB (default: 20)
-            volume_mount: Mount path for volume
             container_disk: Container disk size in GB (default: 20)
-            datacenter_id: Comma-separated datacenter IDs (optional)
+            datacenter_id: Datacenter ID for placement (optional)
             env: Environment variables to set on the pod (optional)
 
         Returns:
@@ -399,7 +396,7 @@ class RunPodAPI:
             raise RunPodAPIError("Either image or template_id is required to create a CPU pod")
 
         query = """
-        mutation deployCpuPod($input: DeployCpuPodInput!) {
+        mutation deployCpuPod($input: deployCpuPodInput!) {
             deployCpuPod(input: $input) {
                 id
                 desiredStatus
@@ -408,18 +405,15 @@ class RunPodAPI:
         """
         input_vars: dict[str, Any] = {
             "name": name,
-            "volumeInGb": volume_size,
-            "volumeMountPath": volume_mount,
+            "instanceId": instance_id,
             "containerDiskInGb": container_disk,
+            "supportPublicIp": True,
             "ports": "22/tcp",
-            "cloudType": "ALL",
         }
         if template_id:
             input_vars["templateId"] = template_id
         else:
             input_vars["imageName"] = image
-        if instance_id:
-            input_vars["instanceId"] = instance_id
         if datacenter_id:
             input_vars["dataCenterId"] = datacenter_id
         if env:
@@ -445,11 +439,11 @@ class RunPodAPI:
         self._request(query, {"podId": pod_id}, operation="stop_pod")
 
     def start_pod(self, pod_id: str, gpu_count: int = 1) -> None:
-        """Start a stopped pod.
+        """Start a stopped GPU pod.
 
         Args:
             pod_id: RunPod pod ID
-            gpu_count: Number of GPUs (0 for CPU-only pods)
+            gpu_count: Number of GPUs
         """
         query = """
         mutation startPod($podId: String!, $gpuCount: Int!) {
@@ -464,6 +458,18 @@ class RunPodAPI:
             {"podId": pod_id, "gpuCount": gpu_count},
             operation="start_pod",
         )
+
+    def start_cpu_pod(self, pod_id: str) -> None:
+        """Start a stopped CPU pod."""
+        query = """
+        mutation resumeCpuPod($podId: String!) {
+            resumeCpuPod(input: {podId: $podId}) {
+                id
+                desiredStatus
+            }
+        }
+        """
+        self._request(query, {"podId": pod_id}, operation="start_cpu_pod")
 
     def terminate_pod(self, pod_id: str) -> None:
         """Terminate a pod (destroys it permanently)."""

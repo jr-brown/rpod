@@ -103,7 +103,7 @@ def cmd_create(
         if template_id is None:
             template_id = project_config.default_template_id
         if image is None:
-            image = project_config.default_image or "runpod/ubuntu:22.04"
+            image = project_config.default_image or "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04"
     else:
         # GPU pod path: use project config defaults
         if gpu_type is None:
@@ -176,11 +176,9 @@ def cmd_create(
         if cpu:
             pod_id = api.create_cpu_pod(
                 name=name,
+                instance_id=cpu_type or "cpu3c-2-4",
                 image=image,
                 template_id=template_id,
-                instance_id=cpu_type,
-                volume_size=volume_size,
-                volume_mount=volume_mount,
                 container_disk=container_disk,
                 datacenter_id=datacenter_id,
                 env=pod_env,
@@ -402,15 +400,18 @@ def _start_single_pod(
     """Start a single pod. Returns (label, success, message)."""
     label = reg_name or pod_id
 
-    # Determine GPU count: 0 for CPU pods, 1 for GPU pods
-    gpu_count = 1
+    # Use the right resume mutation for CPU vs GPU pods
+    is_cpu = False
     if reg_name:
         pod_info = registry.get(reg_name)
         if pod_info and pod_info.is_cpu:
-            gpu_count = 0
+            is_cpu = True
 
     try:
-        api.start_pod(pod_id, gpu_count=gpu_count)
+        if is_cpu:
+            api.start_cpu_pod(pod_id)
+        else:
+            api.start_pod(pod_id)
     except RunPodAPIError as e:
         return label, False, str(e)
 
