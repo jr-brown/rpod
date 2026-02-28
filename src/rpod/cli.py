@@ -61,6 +61,16 @@ def create_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Bypass region_whitelist from .rpod.yaml (place pod in any region)",
     )
+    create_p.add_argument(
+        "--cpu",
+        action="store_true",
+        help="Create CPU-only pod (no GPU, cheapest option for orchestration)",
+    )
+    create_p.add_argument(
+        "--cpu-type",
+        default=None,
+        help="CPU instance type (e.g., 'cpu3c-2-4')",
+    )
 
     # stop
     stop_p = subparsers.add_parser("stop", help="Stop a running pod (keeps storage)")
@@ -369,6 +379,8 @@ def main(args: Optional[list[str]] = None) -> int:
                 parsed.models,
                 parsed.setup_follow,
                 parsed.all_regions,
+                parsed.cpu,
+                parsed.cpu_type,
             )
         elif command == "stop":
             from rpod.commands.lifecycle import cmd_stop

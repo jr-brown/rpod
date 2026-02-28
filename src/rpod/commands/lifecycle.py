@@ -69,6 +69,8 @@ def cmd_create(
     models: Optional[str] = None,
     setup_follow: bool = False,
     all_regions: bool = False,
+    cpu: bool = False,
+    cpu_type: Optional[str] = None,
 ) -> int:
     """Create a new pod via RunPod API.
 
@@ -85,20 +87,38 @@ def cmd_create(
     api = RunPodAPI(config.api_key, timeout=config.api_timeout)
     registry = PodRegistry()
 
-    # Use project config defaults if CLI args not provided
-    if gpu_type is None:
-        gpu_type = project_config.default_gpu
-    if gpu_type is None:
-        print("Error: --gpu is required (no default_gpu in .rpod.yaml)", file=sys.stderr)
+    # Validate --cpu and --gpu are mutually exclusive
+    if cpu and gpu_type:
+        print("Error: --cpu and --gpu are mutually exclusive", file=sys.stderr)
         return 1
-    if volume_size is None:
-        volume_size = project_config.default_volume_size or 50
-    if container_disk is None:
-        container_disk = project_config.default_container_disk or 100
-    if template_id is None:
-        template_id = project_config.default_template_id
-    if image is None:
-        image = project_config.default_image or "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04"
+
+    # CPU pod path: skip GPU requirement, use smaller defaults
+    if cpu:
+        if cpu_type is None:
+            cpu_type = project_config.default_cpu_type
+        if volume_size is None:
+            volume_size = project_config.default_volume_size or 20
+        if container_disk is None:
+            container_disk = project_config.default_container_disk or 20
+        if template_id is None:
+            template_id = project_config.default_template_id
+        if image is None:
+            image = project_config.default_image or "runpod/ubuntu:22.04"
+    else:
+        # GPU pod path: use project config defaults
+        if gpu_type is None:
+            gpu_type = project_config.default_gpu
+        if gpu_type is None:
+            print("Error: --gpu is required (no default_gpu in .rpod.yaml)", file=sys.stderr)
+            return 1
+        if volume_size is None:
+            volume_size = project_config.default_volume_size or 50
+        if container_disk is None:
+            container_disk = project_config.default_container_disk or 100
+        if template_id is None:
+            template_id = project_config.default_template_id
+        if image is None:
+            image = project_config.default_image or "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04"
 
     # Models: CLI overrides config
     if models is None and project_config.models:
@@ -141,25 +161,43 @@ def cmd_create(
 
     pod_env: dict[str, str] = {"PUBLIC_KEY": ssh_public_key}
 
-    print(f"Creating pod '{name}' with {gpu_type}...")
+    if cpu:
+        label = f"CPU{f' ({cpu_type})' if cpu_type else ''}"
+        print(f"Creating CPU pod '{name}'...")
+    else:
+        label = gpu_type
+        print(f"Creating pod '{name}' with {gpu_type}...")
     print(f"  Workspace: {workspace}")
     if template_id:
         print(f"  Template ID: {template_id}")
         print("  Note: Template must expose SSH on 22/tcp for rpod to connect.")
 
     try:
-        pod_id = api.create_pod(
-            name=name,
-            gpu_type=gpu_type,
-            image=image,
-            template_id=template_id,
-            volume_size=volume_size,
-            volume_mount=volume_mount,
-            gpu_count=gpu_count,
-            container_disk=container_disk,
-            datacenter_id=datacenter_id,
-            env=pod_env,
-        )
+        if cpu:
+            pod_id = api.create_cpu_pod(
+                name=name,
+                image=image,
+                template_id=template_id,
+                instance_id=cpu_type,
+                volume_size=volume_size,
+                volume_mount=volume_mount,
+                container_disk=container_disk,
+                datacenter_id=datacenter_id,
+                env=pod_env,
+            )
+        else:
+            pod_id = api.create_pod(
+                name=name,
+                gpu_type=gpu_type,
+                image=image,
+                template_id=template_id,
+                volume_size=volume_size,
+                volume_mount=volume_mount,
+                gpu_count=gpu_count,
+                container_disk=container_disk,
+                datacenter_id=datacenter_id,
+                env=pod_env,
+            )
     except RunPodAPIError as e:
         print(f"Error creating pod: {e}", file=sys.stderr)
         return 1
@@ -193,6 +231,9 @@ def cmd_create(
 
     print()  # Clear the status line
 
+    # For CPU pods, gpu_type is None in the registry
+    registered_gpu_type = None if cpu else (actual_gpu or gpu_type)
+
     if not public_ip or not ssh_port:
         print("Error: Timed out waiting for pod to be ready", file=sys.stderr)
         print(f"Pod ID: {pod_id} - check RunPod dashboard", file=sys.stderr)
@@ -204,7 +245,7 @@ def cmd_create(
             pod_id=pod_id,
             workspace=workspace,
             key_path=str(config.ssh_key),
-            gpu_type=actual_gpu or gpu_type,
+            gpu_type=registered_gpu_type,
             status="PENDING",
             workdir=project_config.workdir,
             auto_log=project_config.auto_log,
@@ -220,7 +261,7 @@ def cmd_create(
         pod_id=pod_id,
         workspace=workspace,
         key_path=str(config.ssh_key),
-        gpu_type=actual_gpu or gpu_type,
+        gpu_type=registered_gpu_type,
         status="RUNNING",
         workdir=project_config.workdir,
         auto_log=project_config.auto_log,
@@ -230,7 +271,10 @@ def cmd_create(
     print(f"Pod ready!")
     print(f"  IP: {public_ip}")
     print(f"  SSH Port: {ssh_port}")
-    print(f"  GPU: {actual_gpu or gpu_type}")
+    if cpu:
+        print(f"  Type: CPU{f' ({cpu_type})' if cpu_type else ''}")
+    else:
+        print(f"  GPU: {actual_gpu or gpu_type}")
 
     # Test SSH connection (sshd may take a few seconds to start)
     print("Testing SSH connection...")
@@ -358,8 +402,15 @@ def _start_single_pod(
     """Start a single pod. Returns (label, success, message)."""
     label = reg_name or pod_id
 
+    # Determine GPU count: 0 for CPU pods, 1 for GPU pods
+    gpu_count = 1
+    if reg_name:
+        pod_info = registry.get(reg_name)
+        if pod_info and pod_info.is_cpu:
+            gpu_count = 0
+
     try:
-        api.start_pod(pod_id)
+        api.start_pod(pod_id, gpu_count=gpu_count)
     except RunPodAPIError as e:
         return label, False, str(e)
 

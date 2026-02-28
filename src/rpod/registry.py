@@ -30,6 +30,11 @@ class PodInfo:
     log_dir: str = "/workspace/logs"  # Where to store logs
 
     @property
+    def is_cpu(self) -> bool:
+        """Whether this is a CPU-only pod."""
+        return self.gpu_type is None or self.gpu_type == "CPU"
+
+    @property
     def ssh_opts(self) -> list[str]:
         """SSH command options for this pod."""
         key = Path(self.key_path).expanduser()

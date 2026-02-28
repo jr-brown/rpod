@@ -322,6 +322,111 @@ class TestCLIParser:
         assert args.targets == []
 
 
+class TestCPUPodSupport:
+    """Tests for CPU pod support."""
+
+    def test_is_cpu_when_gpu_type_none(self, tmp_path: Path):
+        """is_cpu returns True when gpu_type is None."""
+        from rpod.registry import PodRegistry
+
+        registry_path = tmp_path / "pods.yaml"
+        registry = PodRegistry(registry_path)
+
+        pod = registry.register(
+            name="cpu-pod",
+            ip="1.2.3.4",
+            port=22,
+            gpu_type=None,
+        )
+
+        assert pod.is_cpu is True
+
+    def test_is_cpu_when_gpu_type_cpu(self, tmp_path: Path):
+        """is_cpu returns True when gpu_type is 'CPU'."""
+        from rpod.registry import PodInfo
+
+        pod = PodInfo(name="cpu-pod", gpu_type="CPU")
+        assert pod.is_cpu is True
+
+    def test_is_cpu_false_for_gpu_pod(self, tmp_path: Path):
+        """is_cpu returns False for GPU pods."""
+        from rpod.registry import PodInfo
+
+        pod = PodInfo(name="gpu-pod", gpu_type="NVIDIA H100 80GB HBM3")
+        assert pod.is_cpu is False
+
+    def test_cli_create_with_cpu_flag(self):
+        """--cpu flag is parsed in create command."""
+        from rpod.cli import create_parser
+
+        parser = create_parser()
+
+        args = parser.parse_args(["create", "test-pod", "--cpu"])
+        assert args.cpu is True
+        assert args.gpu is None
+
+    def test_cli_create_with_cpu_type(self):
+        """--cpu-type is parsed in create command."""
+        from rpod.cli import create_parser
+
+        parser = create_parser()
+
+        args = parser.parse_args(["create", "test-pod", "--cpu", "--cpu-type", "cpu3c-2-4"])
+        assert args.cpu is True
+        assert args.cpu_type == "cpu3c-2-4"
+
+    def test_cli_create_cpu_defaults(self):
+        """--cpu and --cpu-type default to False/None."""
+        from rpod.cli import create_parser
+
+        parser = create_parser()
+
+        args = parser.parse_args(["create", "test-pod", "--gpu", "NVIDIA A100"])
+        assert args.cpu is False
+        assert args.cpu_type is None
+
+    def test_project_config_default_cpu_type(self, tmp_path: Path):
+        """default_cpu_type is loaded from .rpod.yaml."""
+        from rpod.project_config import load_project_config
+
+        config_content = {"default_cpu_type": "cpu3c-2-4"}
+        (tmp_path / ".rpod.yaml").write_text(yaml.dump(config_content))
+
+        config = load_project_config(tmp_path)
+
+        assert config.default_cpu_type == "cpu3c-2-4"
+
+    def test_project_config_default_cpu_type_none(self, tmp_path: Path):
+        """default_cpu_type defaults to None."""
+        from rpod.project_config import load_project_config
+
+        config = load_project_config(tmp_path)
+
+        assert config.default_cpu_type is None
+
+    def test_is_cpu_persists_across_reload(self, tmp_path: Path):
+        """CPU pod (gpu_type=None) persists correctly across registry reload."""
+        from rpod.registry import PodRegistry
+
+        registry_path = tmp_path / "pods.yaml"
+
+        registry1 = PodRegistry(registry_path)
+        registry1.register(
+            name="cpu-persist",
+            ip="1.2.3.4",
+            port=22,
+            pod_id="cpu123",
+            gpu_type=None,
+        )
+
+        registry2 = PodRegistry(registry_path)
+        pod = registry2.get("cpu-persist")
+
+        assert pod is not None
+        assert pod.is_cpu is True
+        assert pod.gpu_type is None
+
+
 class TestParseTomlStrict:
     """Tests for config.py _parse_toml_strict()."""
 

@@ -27,6 +27,7 @@ VALID_KEYS = {
     "log_level",
     "setup_datasets",
     "region_whitelist",
+    "default_cpu_type",
 }
 
 
@@ -48,6 +49,7 @@ class ProjectConfig:
     default_container_disk: Optional[int] = None
     default_template_id: Optional[str] = None
     default_image: Optional[str] = None
+    default_cpu_type: Optional[str] = None  # CPU instance type (e.g., "cpu3c-2-4")
     models: list[str] = field(default_factory=list)
 
     # Sync
@@ -189,6 +191,7 @@ def load_project_config(search_dir: Optional[Path] = None) -> ProjectConfig:
                 default_container_disk=data.get("default_container_disk"),
                 default_template_id=data.get("default_template_id"),
                 default_image=data.get("default_image"),
+                default_cpu_type=data.get("default_cpu_type"),
                 models=data.get("models", []),
                 push_excludes=data.get("push_excludes", []),
                 clean_targets=data.get("clean_targets", []),
