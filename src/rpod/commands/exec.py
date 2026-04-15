@@ -1,5 +1,6 @@
 """Execution commands: exec (with tmux support)."""
 
+import shlex
 import sys
 import time
 from datetime import datetime
@@ -17,7 +18,7 @@ def _env_preamble(pod: PodInfo) -> str:
     2. pod.workspace (e.g., /workspace/project-name)
     """
     target = pod.workdir or pod.workspace
-    return f"cd {target} 2>/dev/null; . {pod.workspace}/.rpod-env.sh 2>/dev/null; "
+    return f"cd {shlex.quote(target)} || true; . {shlex.quote(pod.workspace + '/.rpod-env.sh')} 2>/dev/null; "
 
 
 def _validate_exec_prereqs(ssh: "SSHConnection", pod: PodInfo, use_tmux: bool) -> Optional[str]:
@@ -28,7 +29,7 @@ def _validate_exec_prereqs(ssh: "SSHConnection", pod: PodInfo, use_tmux: bool) -
     # Check workdir exists
     target = pod.workdir or pod.workspace
     if target:
-        result = ssh.run(f"test -d {target} && echo ok", timeout=10)
+        result = ssh.run(f"test -d {shlex.quote(target)} && echo ok", timeout=10)
         if "ok" not in result.stdout:
             return f"workdir does not exist on pod: {target}\nRun 'rpod push {pod.name}' first, or check .rpod.yaml workdir setting."
 
@@ -47,6 +48,7 @@ def cmd_exec(
     tmux_session: Optional[str] = None,
     log_file: Optional[str] = None,
     gpu: Optional[str] = None,
+    timeout: int = 600,
 ) -> int:
     """Execute a command on a pod.
 
@@ -69,7 +71,7 @@ def cmd_exec(
         print(f"Error: Pod '{name}' has no IP address", file=sys.stderr)
         return 1
 
-    ssh = SSHConnection(pod, timeout=600)  # 10 minute timeout for commands
+    ssh = SSHConnection(pod, timeout=timeout)
 
     # Validate prerequisites
     error = _validate_exec_prereqs(ssh, pod, use_tmux=tmux_session is not None)
@@ -90,12 +92,15 @@ def cmd_exec(
 def _exec_simple(ssh: SSHConnection, command: str) -> int:
     """Execute a simple command and print output."""
     full_cmd = f"{_env_preamble(ssh.pod)}{command}"
-    result = ssh.run(full_cmd, timeout=600)
+    result = ssh.run(full_cmd, timeout=ssh.timeout)
 
     if result.stdout:
         print(result.stdout, end="")
     if result.stderr:
         print(result.stderr, end="", file=sys.stderr)
+
+    if result.returncode == -1 and "timed out" in result.stderr:
+        print(f"\nTip: Use --tmux SESSION for long-running commands", file=sys.stderr)
 
     return 0 if result.success else result.returncode
 
@@ -125,7 +130,7 @@ def _exec_tmux(
     env_source = _env_preamble(ssh.pod).rstrip("; ")
 
     # Check if session exists
-    check_result = ssh.run(f"tmux has-session -t {session} 2>/dev/null && echo exists")
+    check_result = ssh.run(f"tmux has-session -t {shlex.quote(session)} 2>/dev/null && echo exists")
 
     if "exists" in check_result.stdout:
         # Session exists - send command to it
@@ -146,7 +151,7 @@ def _exec_tmux(
             print(f"Error writing script: {write_result.stderr}", file=sys.stderr)
             return 1
 
-        tmux_cmd = f"tmux send-keys -t {session} 'bash {script_path}' Enter"
+        tmux_cmd = f"tmux send-keys -t {shlex.quote(session)} 'bash {script_path}' Enter"
         result = ssh.run(tmux_cmd)
         if not result.success:
             print(f"Error: {result.stderr}", file=sys.stderr)
@@ -174,14 +179,14 @@ def _exec_tmux(
             print(f"Error writing script: {write_result.stderr}", file=sys.stderr)
             return 1
 
-        tmux_cmd = f"tmux new-session -d -s {session} 'bash {script_path}'"
+        tmux_cmd = f"tmux new-session -d -s {shlex.quote(session)} 'bash {script_path}'"
         result = ssh.run(tmux_cmd)
         if not result.success:
             print(f"Error creating session: {result.stderr}", file=sys.stderr)
             return 1
 
         # Verify session was created
-        verify = ssh.run(f"tmux has-session -t {session} 2>/dev/null && echo ok")
+        verify = ssh.run(f"tmux has-session -t {shlex.quote(session)} 2>/dev/null && echo ok")
         if "ok" not in verify.stdout:
             print(f"Error: session '{session}' failed to start", file=sys.stderr)
             return 1
@@ -190,7 +195,7 @@ def _exec_tmux(
 
         # Wait briefly and check if session died (catches immediate failures)
         time.sleep(2)
-        recheck = ssh.run(f"tmux has-session -t {session} 2>/dev/null && echo ok")
+        recheck = ssh.run(f"tmux has-session -t {shlex.quote(session)} 2>/dev/null && echo ok")
         if "ok" not in recheck.stdout:
             print(f"\nWarning: session '{session}' died within 2 seconds!", file=sys.stderr)
             print("Possible causes: missing dependencies, disk full, or command error.", file=sys.stderr)

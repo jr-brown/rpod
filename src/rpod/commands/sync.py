@@ -9,16 +9,30 @@ from rpod.project_config import load_project_config
 from rpod.registry import PodRegistry
 from rpod.ssh import SSHConnection
 
+# Base excludes always applied (unless --purge is used)
+BASE_EXCLUDES = [".venv", ".git", "__pycache__", "*.pyc", ".env", "local"]
+
+
 def get_excludes(
     cli_excludes: Optional[list[str]] = None,
     config_excludes: Optional[list[str]] = None,
+    include_base: bool = True,
 ) -> list[str]:
-    """Get list of excludes from config with optional CLI additions.
+    """Get list of excludes by merging base, config, and CLI excludes.
 
-    Base excludes come from .rpod.yaml push_excludes.
-    CLI --exclude patterns are added on top.
+    Base excludes are always included unless include_base is False (--purge).
+    Config excludes from .rpod.yaml push_excludes are added on top.
+    CLI --exclude patterns are added on top of that.
     """
-    excludes = list(config_excludes) if config_excludes else []
+    excludes: list[str] = []
+
+    if include_base:
+        excludes.extend(BASE_EXCLUDES)
+
+    if config_excludes:
+        for exc in config_excludes:
+            if exc and exc not in excludes:
+                excludes.append(exc)
 
     if cli_excludes:
         for exc in cli_excludes:
@@ -34,10 +48,17 @@ def cmd_push(
     remote_path: Optional[str] = None,
     excludes: Optional[list[str]] = None,
     timeout: int = 300,
+    clean: bool = False,
+    purge: bool = False,
+    dry_run: bool = False,
 ) -> int:
     """Push local directory to pod.
 
     Uses rsync over SSH for efficient incremental transfer.
+
+    By default, rsync does NOT delete remote files that don't exist locally.
+    Use --clean to enable deletion (with base excludes still protecting common
+    output directories like local/). Use --purge to delete with no base excludes.
     """
     registry = PodRegistry()
 
@@ -62,15 +83,32 @@ def cmd_push(
 
     # Get final excludes list (with config excludes)
     project_config = load_project_config()
-    final_excludes = get_excludes(excludes, project_config.push_excludes)
+    include_base = not purge
+    final_excludes = get_excludes(excludes, project_config.push_excludes, include_base=include_base)
+
+    delete = clean or purge
 
     ssh = SSHConnection(pod)
 
-    print(f"Pushing {local} -> {pod.name}:{remote}")
-    print(f"Excludes: {', '.join(final_excludes)}")
+    mode = ""
+    if dry_run:
+        mode = "[DRY RUN] "
+    if purge:
+        mode += "[PURGE] "
+    elif clean:
+        mode += "[CLEAN] "
+
+    print(f"{mode}Pushing {local} -> {pod.name}:{remote}")
+    if final_excludes:
+        print(f"Excludes: {', '.join(final_excludes)}")
+    if delete:
+        print(f"Remote files not in local will be deleted")
 
     t0 = time.time()
-    result = ssh.rsync_push(local, remote, excludes=final_excludes, timeout=timeout)
+    result = ssh.rsync_push(
+        local, remote, excludes=final_excludes, timeout=timeout,
+        delete=delete, dry_run=dry_run,
+    )
     elapsed = time.time() - t0
 
     if result.success:

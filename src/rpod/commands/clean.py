@@ -13,22 +13,22 @@ from rpod.ssh import SSHConnection
 CLEAN_TARGETS = {
     "tmp": {
         "description": "Clear /tmp/*",
-        "command": "rm -rf /tmp/* 2>/dev/null || true",
+        "command": "rm -rf /tmp/* 2>/dev/null; echo clean_exit_$?",
         "size_cmd": "du -sh /tmp 2>/dev/null | cut -f1 || echo '0'",
     },
     "checkpoints": {
         "description": "Remove checkpoint-* directories",
-        "command": "find /workspace -type d -name 'checkpoint-*' -exec rm -rf {} + 2>/dev/null || true",
+        "command": "find /workspace -type d -name 'checkpoint-*' -exec rm -rf {} + 2>/dev/null; echo clean_exit_$?",
         "size_cmd": "find /workspace -type d -name 'checkpoint-*' -print0 2>/dev/null | xargs -0 -r du -shc 2>/dev/null | tail -1 | cut -f1 || echo '0'",
     },
     "pycache": {
         "description": "Remove __pycache__ and *.pyc",
-        "command": "find /workspace -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null; find /workspace -name '*.pyc' -delete 2>/dev/null || true",
+        "command": "find /workspace -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null; find /workspace -name '*.pyc' -delete 2>/dev/null; echo clean_exit_$?",
         "size_cmd": "find /workspace -type d -name '__pycache__' -print0 2>/dev/null | xargs -0 -r du -shc 2>/dev/null | tail -1 | cut -f1 || echo '0'",
     },
     "logs": {
         "description": "Remove *.log files from /workspace",
-        "command": "find /workspace -name '*.log' -delete 2>/dev/null || true",
+        "command": "find /workspace -name '*.log' -delete 2>/dev/null; echo clean_exit_$?",
         "size_cmd": "find /workspace -name '*.log' -print0 2>/dev/null | xargs -0 -r du -shc 2>/dev/null | tail -1 | cut -f1 || echo '0'",
     },
 }
@@ -107,8 +107,10 @@ def cmd_clean(
 
         if not dry_run:
             result = ssh.run(info["command"])
-            if result.success:
+            if result.success and "clean_exit_0" in result.stdout:
                 print(f"  Cleaned")
+            elif result.success:
+                print(f"  Warning: some files may not have been deleted (permission denied?)", file=sys.stderr)
             else:
                 print(f"  Warning: {result.stderr}", file=sys.stderr)
 

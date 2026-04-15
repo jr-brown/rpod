@@ -209,14 +209,20 @@ class SSHConnection:
         remote_path: str,
         excludes: Optional[list[str]] = None,
         timeout: int = 300,
+        delete: bool = False,
+        dry_run: bool = False,
     ) -> SSHResult:
         """Push local directory to pod using rsync over SSH.
 
-        Uses rsync -az --delete for efficient incremental sync.
+        Uses rsync -rlptDz for efficient incremental sync.
         Shows progress during transfer.
+
+        Args:
+            delete: If True, delete remote files not present locally (rsync --delete).
+            dry_run: If True, show what would be transferred without doing it (rsync -n).
         """
         if excludes is None:
-            excludes = [".venv", ".git", "__pycache__", "*.pyc", ".env", "local"]
+            excludes = []
 
         local_path = Path(local_path).resolve()
         if not local_path.exists():
@@ -231,9 +237,13 @@ class SSHConnection:
         # Use -rlptDz instead of -az to avoid chown failures on mounted volumes
         # Add --progress for user feedback
         cmd = [
-            "rsync", "-rlptDz", "--delete", "--progress",
+            "rsync", "-rlptDz", "--progress",
             "-e", self._ssh_string(),
         ]
+        if delete:
+            cmd.append("--delete")
+        if dry_run:
+            cmd.append("--dry-run")
         for exc in excludes:
             cmd.extend(["--exclude", exc])
 

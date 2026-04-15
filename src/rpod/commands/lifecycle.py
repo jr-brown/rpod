@@ -103,7 +103,7 @@ def cmd_create(
         if template_id is None:
             template_id = project_config.default_template_id
         if image is None:
-            image = project_config.default_image or "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04"
+            image = project_config.default_image or "runpod/ubuntu:22.04"
     else:
         # GPU pod path: use project config defaults
         if gpu_type is None:
@@ -238,7 +238,7 @@ def cmd_create(
         # Still register it without connection info
         registry.register(
             name=name,
-            ip="pending",
+            ip=None,
             port=22,
             pod_id=pod_id,
             workspace=workspace,
@@ -303,13 +303,17 @@ def cmd_create(
         from rpod.commands.sync import cmd_push
 
         print("\nPushing code...")
-        cmd_push(name, ".")
+        if cmd_push(name, ".") != 0:
+            print("Error: Code push failed, aborting bootstrap", file=sys.stderr)
+            print(f"Pod is running. Connect with: rpod connect {name}", file=sys.stderr)
+            return 1
 
         if Path(".env").exists():
             from rpod.commands.env import cmd_env_push
 
             print("Pushing environment...")
-            cmd_env_push(name)
+            if cmd_env_push(name) != 0:
+                print("Warning: env push failed, continuing bootstrap", file=sys.stderr)
 
         from rpod.commands.setup import cmd_setup
 
@@ -454,7 +458,7 @@ def _start_single_pod(
 
         time.sleep(5)
 
-    return label, False, "timed out waiting for SSH info"
+    return label, False, "timed out waiting for SSH info. Try: rpod list"
 
 
 def cmd_start(
@@ -519,7 +523,7 @@ def cmd_start(
             print(f"✗ {label} - {message}", file=sys.stderr)
 
     if no_wait and success_count > 0:
-        print(f"\nUse 'rpod list --refresh' to check status.")
+        print(f"\nUse 'rpod list' to check status.")
 
     return 0 if failure_count == 0 else 1
 
@@ -580,7 +584,7 @@ def cmd_terminate(names: list[str], force: bool = False) -> int:
         try:
             api.terminate_pod(pod_id)
             if reg_name:
-                registry.remove(reg_name)
+                registry.update(reg_name, status="TERMINATED", ip=None)
             results.append((label, True, "terminated"))
         except RunPodAPIError as e:
             results.append((label, False, str(e)))

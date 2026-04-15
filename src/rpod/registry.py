@@ -106,7 +106,7 @@ class PodRegistry:
     def register(
         self,
         name: str,
-        ip: str,
+        ip: Optional[str],
         port: int,
         pod_id: Optional[str] = None,
         workspace: str = "/workspace",

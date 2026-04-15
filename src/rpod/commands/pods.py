@@ -10,7 +10,7 @@ from rpod.registry import PodRegistry
 from rpod.ssh import SSHConnection
 
 
-def cmd_list(as_json: bool = False, refresh: bool = False) -> int:
+def cmd_list(as_json: bool = False, refresh: bool = True) -> int:
     """List registered pods."""
     registry = PodRegistry()
     pods = registry.list()
@@ -24,14 +24,18 @@ def cmd_list(as_json: bool = False, refresh: bool = False) -> int:
             print("Or 'rpod create' to create a new one")
         return 0
 
-    # Optionally refresh status from API
+    # Optionally refresh status from API (uses get_pod per pod for full IP/port info)
     api_statuses = {}
     if refresh:
         try:
             config = load_config()
             api = RunPodAPI(config.api_key, timeout=config.api_timeout)
-            for status in api.list_pods():
-                api_statuses[status.pod_id] = status
+            for pod in pods:
+                if pod.pod_id:
+                    try:
+                        api_statuses[pod.pod_id] = api.get_pod(pod.pod_id)
+                    except RunPodAPIError:
+                        pass  # Pod may have been terminated
         except Exception as e:
             print(f"Warning: Could not refresh from API: {e}", file=sys.stderr)
 
@@ -51,7 +55,14 @@ def cmd_list(as_json: bool = False, refresh: bool = False) -> int:
             if pod.pod_id and pod.pod_id in api_statuses:
                 api_status = api_statuses[pod.pod_id]
                 pod_data["status"] = api_status.status
-                registry.update(pod.name, status=api_status.status)
+                update_kwargs = {"status": api_status.status}
+                if api_status.public_ip:
+                    pod_data["ip"] = api_status.public_ip
+                    update_kwargs["ip"] = api_status.public_ip
+                if api_status.ssh_port:
+                    pod_data["port"] = api_status.ssh_port
+                    update_kwargs["port"] = api_status.ssh_port
+                registry.update(pod.name, **update_kwargs)
             data.append(pod_data)
         print(json.dumps(data, indent=2))
         return 0
@@ -66,7 +77,13 @@ def cmd_list(as_json: bool = False, refresh: bool = False) -> int:
         if pod.pod_id and pod.pod_id in api_statuses:
             api_status = api_statuses[pod.pod_id]
             status = api_status.status
-            registry.update(pod.name, status=status)
+            update_kwargs = {"status": status}
+            if api_status.public_ip:
+                ip = api_status.public_ip
+                update_kwargs["ip"] = api_status.public_ip
+            if api_status.ssh_port:
+                update_kwargs["port"] = api_status.ssh_port
+            registry.update(pod.name, **update_kwargs)
 
         ip = pod.ip or "-"
         gpu = (pod.gpu_type or "-")[:25]

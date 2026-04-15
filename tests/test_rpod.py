@@ -193,11 +193,19 @@ class TestPodRegistry:
 class TestSyncExcludes:
     """Tests for sync.py exclude merging."""
 
-    def test_get_excludes_empty_when_no_args(self):
-        """get_excludes returns empty list when no excludes provided."""
-        from rpod.commands.sync import get_excludes
+    def test_get_excludes_base_when_no_args(self):
+        """get_excludes returns base excludes when no args provided."""
+        from rpod.commands.sync import get_excludes, BASE_EXCLUDES
 
         excludes = get_excludes()
+
+        assert excludes == BASE_EXCLUDES
+
+    def test_get_excludes_empty_when_no_base(self):
+        """get_excludes returns empty list when base excludes disabled."""
+        from rpod.commands.sync import get_excludes
+
+        excludes = get_excludes(include_base=False)
 
         assert excludes == []
 

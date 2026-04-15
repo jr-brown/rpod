@@ -79,10 +79,10 @@ def _read_training_metadata(name: str, local_path: str) -> Optional[dict]:
 
     Returns None if file doesn't exist.
     """
-    from rpod.ssh import run_ssh_command
-    from rpod.registry import get_pod
+    from rpod.registry import PodRegistry
+    from rpod.ssh import SSHConnection
 
-    pod = get_pod(name)
+    pod = PodRegistry().get(name)
     if not pod:
         return None
 
@@ -93,12 +93,13 @@ def _read_training_metadata(name: str, local_path: str) -> Optional[dict]:
         full_path = f"{pod.workspace}/{local_path}/training_metadata.json"
 
     # Try to read the file
-    result = run_ssh_command(pod, f"cat {full_path} 2>/dev/null || echo '__NOT_FOUND__'")
-    if result is None or "__NOT_FOUND__" in result:
+    ssh = SSHConnection(pod, timeout=30)
+    result = ssh.run(f"cat {full_path} 2>/dev/null || echo '__NOT_FOUND__'")
+    if not result.success or "__NOT_FOUND__" in result.stdout:
         return None
 
     try:
-        return json.loads(result)
+        return json.loads(result.stdout)
     except json.JSONDecodeError:
         return None
 
@@ -112,12 +113,14 @@ def _update_adapter_config(
 
     Returns True on success.
     """
-    from rpod.ssh import run_ssh_command
-    from rpod.registry import get_pod
+    from rpod.registry import PodRegistry
+    from rpod.ssh import SSHConnection
 
-    pod = get_pod(name)
+    pod = PodRegistry().get(name)
     if not pod:
         return False
+
+    ssh = SSHConnection(pod, timeout=30)
 
     # Construct full path
     if local_path.startswith("/"):
@@ -126,13 +129,13 @@ def _update_adapter_config(
         config_path = f"{pod.workspace}/{local_path}/adapter_config.json"
 
     # Read current config
-    result = run_ssh_command(pod, f"cat {config_path}")
-    if result is None:
+    result = ssh.run(f"cat {config_path}")
+    if not result.success:
         print(f"ERROR: Could not read {config_path}")
         return False
 
     try:
-        config = json.loads(result)
+        config = json.loads(result.stdout)
     except json.JSONDecodeError:
         print(f"ERROR: Invalid JSON in {config_path}")
         return False
@@ -141,13 +144,13 @@ def _update_adapter_config(
     old_base = config.get("base_model_name_or_path", "unknown")
     config["base_model_name_or_path"] = new_base_model
 
-    # Write back
+    # Write back using heredoc to avoid shell quoting issues
     config_json = json.dumps(config, indent=2)
-    # Escape for shell
-    escaped_json = config_json.replace("'", "'\\''")
-    write_result = run_ssh_command(pod, f"echo '{escaped_json}' > {config_path}")
+    write_result = ssh.run(
+        f"cat > {config_path} << 'RPOD_ADAPTER_CFG_EOF'\n{config_json}\nRPOD_ADAPTER_CFG_EOF"
+    )
 
-    if write_result is None:
+    if not write_result.success:
         print(f"ERROR: Could not write {config_path}")
         return False
 
@@ -173,9 +176,9 @@ def _create_and_upload_merged_model(
     Returns True on success.
     """
     from rpod.commands.exec import cmd_exec
-    from rpod.registry import get_pod
+    from rpod.registry import PodRegistry
 
-    pod = get_pod(name)
+    pod = PodRegistry().get(name)
     if not pod:
         return False
 
@@ -238,13 +241,12 @@ print(f"SUCCESS: Merged model uploaded to {merged_repo_id}")
 
     # Write script to pod and execute
     script_path = "/tmp/merge_and_upload.py"
-    escaped_script = merge_script.replace("'", "'\\''")
 
-    from rpod.ssh import run_ssh_command
+    from rpod.ssh import SSHConnection
 
-    # Write script
-    write_result = run_ssh_command(pod, f"cat > {script_path} << 'SCRIPT_EOF'\n{merge_script}\nSCRIPT_EOF")
-    if write_result is None:
+    ssh = SSHConnection(pod, timeout=30)
+    write_result = ssh.run(f"cat > {script_path} << 'SCRIPT_EOF'\n{merge_script}\nSCRIPT_EOF")
+    if not write_result.success:
         print("ERROR: Could not write merge script to pod")
         return False
 

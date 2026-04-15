@@ -92,7 +92,7 @@ def create_parser() -> argparse.ArgumentParser:
     # list
     list_p = subparsers.add_parser("list", aliases=["ls"], help="List registered pods")
     list_p.add_argument("--json", action="store_true", help="Output as JSON")
-    list_p.add_argument("--refresh", action="store_true", help="Refresh status from API")
+    list_p.add_argument("--no-refresh", action="store_true", help="Skip API refresh (use cached status)")
 
     # templates
     templates_p = subparsers.add_parser("templates", help="List RunPod templates")
@@ -124,6 +124,7 @@ def create_parser() -> argparse.ArgumentParser:
     exec_p.add_argument("-t", "--tmux", metavar="SESSION", help="Run in tmux session")
     exec_p.add_argument("--log", metavar="FILE", help="Log tmux output to file")
     exec_p.add_argument("--gpu", metavar="DEVICES", help="GPU device(s) to use (e.g., '0' or '0,1')")
+    exec_p.add_argument("--timeout", type=int, default=600, help="Timeout in seconds (default: 600). Use --tmux for long-running commands.")
 
     # === Sync ===
 
@@ -137,6 +138,21 @@ def create_parser() -> argparse.ArgumentParser:
         nargs="*",
         metavar="PATTERN",
         help="Extra exclude patterns (added to .rpod.yaml push_excludes)",
+    )
+    push_p.add_argument(
+        "--clean",
+        action="store_true",
+        help="Delete remote files not present locally (rsync --delete). Base excludes still apply.",
+    )
+    push_p.add_argument(
+        "--purge",
+        action="store_true",
+        help="Like --clean but skips base excludes (only config/CLI excludes apply). Use with caution.",
+    )
+    push_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be transferred/deleted without doing it",
     )
     push_p.add_argument(
         "--timeout",
@@ -393,7 +409,7 @@ def main(args: Optional[list[str]] = None) -> int:
             result = cmd_terminate(parsed.names, parsed.force)
         elif command == "list":
             from rpod.commands.pods import cmd_list
-            result = cmd_list(parsed.json, parsed.refresh)
+            result = cmd_list(parsed.json, refresh=not parsed.no_refresh)
         elif command == "templates":
             from rpod.commands.api import cmd_templates
             result = cmd_templates(parsed.raw)
@@ -414,10 +430,13 @@ def main(args: Optional[list[str]] = None) -> int:
             result = cmd_connect(parsed.name)
         elif command == "exec":
             from rpod.commands.exec import cmd_exec
-            result = cmd_exec(parsed.name, parsed.cmd, parsed.tmux, parsed.log, parsed.gpu)
+            result = cmd_exec(parsed.name, parsed.cmd, parsed.tmux, parsed.log, parsed.gpu, parsed.timeout)
         elif command == "push":
             from rpod.commands.sync import cmd_push
-            result = cmd_push(parsed.name, parsed.path, parsed.remote, parsed.exclude, parsed.timeout)
+            result = cmd_push(
+                parsed.name, parsed.path, parsed.remote, parsed.exclude, parsed.timeout,
+                clean=parsed.clean, purge=parsed.purge, dry_run=parsed.dry_run,
+            )
         elif command == "pull":
             from rpod.commands.sync import cmd_pull
             result = cmd_pull(parsed.name, parsed.remote, parsed.local, parsed.timeout)
