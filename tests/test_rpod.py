@@ -890,6 +890,22 @@ class TestSSHConnectivity:
 class TestExecCommand:
     """Tests for rpod exec functionality."""
 
+    def _ensure_workdir(self, pod, ssh_connection):
+        """Create the workdir on the pod, assert it succeeds."""
+        target = pod.workdir or pod.workspace
+        if target:
+            result = ssh_connection.run(f"mkdir -p {target}")
+            assert result.success, (
+                f"mkdir -p {target} failed (rc={result.returncode}): {result.stderr}"
+            )
+            # Verify it was actually created
+            check = ssh_connection.run(f"test -d {target} && echo ok")
+            assert "ok" in check.stdout, (
+                f"Workdir {target} does not exist after mkdir. "
+                f"Possibly /workspace volume not mounted? "
+                f"ls /workspace: {ssh_connection.run('ls -la /workspace 2>&1 || echo MISSING').stdout}"
+            )
+
     def test_exec_simple_command(self, live_pod, ssh_connection):
         """rpod exec runs simple commands."""
         from rpod.registry import PodRegistry
@@ -897,8 +913,7 @@ class TestExecCommand:
 
         registry = PodRegistry()
         pod = registry.get(live_pod)
-        if pod.workdir:
-            ssh_connection.run(f"mkdir -p {pod.workdir}")
+        self._ensure_workdir(pod, ssh_connection)
 
         result = cmd_exec(live_pod, "echo test-output", None, None, None)
 
@@ -911,9 +926,7 @@ class TestExecCommand:
 
         registry = PodRegistry()
         pod = registry.get(live_pod)
-
-        if pod.workdir:
-            ssh_connection.run(f"mkdir -p {pod.workdir}")
+        self._ensure_workdir(pod, ssh_connection)
 
         marker_file = "pytest-workdir-test"
         cmd_exec(live_pod, f"touch {marker_file}", None, None, None)
