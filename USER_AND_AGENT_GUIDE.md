@@ -95,7 +95,7 @@ setup_datasets:
 - **default_gpu**: If set, `rpod create` doesn't require `--gpu`.
 - **default_template_id**: If set, `rpod create` uses this template unless `--template-id` is provided.
 - **default_image**: If set, `rpod create` uses this image unless `--image` is provided.
-- **push_excludes**: Patterns to exclude when pushing (rsync `--exclude`). No hardcoded defaults; the full list lives here.
+- **push_excludes**: Extra patterns to exclude when pushing (rsync `--exclude`). These are merged with the base excludes (`.venv`, `.git`, `__pycache__`, `*.pyc`, `.env`, `local`) which always apply.
 - **clean_targets**: Default targets for `rpod clean` command.
 - **env_vars**: Extra environment variables written to `.rpod-env.sh` during setup.
 - **setup_datasets**: Datasets to clone during `rpod setup` (list of `{name, repo, path}` dicts).
@@ -156,10 +156,10 @@ The `--bootstrap` flag does: create pod → install rsync → push code → push
 ### Pod Registry (local tracking)
 
 ```bash
-# List all registered pods
+# List all registered pods (auto-refreshes status/IP from API)
 rpod list
 rpod ls --json
-rpod list --refresh  # Update status from API
+rpod list --no-refresh  # Use cached status (faster, no API calls)
 
 # List RunPod templates (REST)
 rpod templates
@@ -241,6 +241,9 @@ rpod exec mydev --gpu 0 "uv run python train.py"
 rpod exec mydev --gpu 0,1 "uv run python multi_gpu.py"
 rpod exec mydev -t eval0 --gpu 0 "uv run python eval1.py"
 rpod exec mydev -t eval1 --gpu 1 "uv run python eval2.py"
+
+# Custom timeout (default: 600s). Use --tmux for long-running commands.
+rpod exec mydev --timeout 1800 "uv run python slow_script.py"
 ```
 
 `rpod exec` automatically sources the workspace env file (`.rpod-env.sh`) before running commands, so PATH, HF_HOME, HF_TOKEN, PYTHONUNBUFFERED, and other variables are available without manual sourcing.
@@ -291,6 +294,16 @@ rpod push mydev --path ./src --remote /workspace/project
 rpod push mydev --exclude node_modules "*.log" dist
 rpod push mydev -e node_modules dist  # Short form
 
+# Delete remote files not present locally (with base excludes protecting outputs)
+rpod push mydev --clean
+
+# Aggressive delete: skip base excludes (only config/CLI excludes apply)
+rpod push mydev --purge
+
+# Preview what would be transferred/deleted
+rpod push mydev --dry-run
+rpod push mydev --clean --dry-run
+
 # Custom timeout for large transfers (default: 300s)
 rpod push mydev --timeout 600
 
@@ -301,7 +314,9 @@ rpod pull mydev /workspace/models --local ./models --timeout 1800  # 30 min for 
 
 Push/pull use `rsync` over SSH for efficient incremental transfers. Only changed files are transferred on subsequent pushes. `rpod push` sends to the pod's workspace path (e.g., `/workspace/<current-directory-name>/`).
 
-Push excludes are configured in `.rpod.yaml` under `push_excludes`. The `--exclude` flag adds to those.
+By default, push does **not** delete remote files that don't exist locally. Use `--clean` to enable deletion (base excludes still protect common output directories like `local/`). Use `--purge` for aggressive deletion without base excludes.
+
+Base excludes (`.venv`, `.git`, `__pycache__`, `*.pyc`, `.env`, `local`) are always applied. Extra excludes from `.rpod.yaml` `push_excludes` and `--exclude` are merged on top.
 
 ### Environment Variables
 

@@ -4,21 +4,19 @@ This document tracks open issues and potential improvements for the rpod CLI too
 
 ## Open Issues
 
-### 0. Shell quoting and argument injection in remote commands
+### 0. Shell quoting and argument injection in remote commands (partially fixed)
 
-**Problem:** Several commands build remote shell strings using unquoted user-controlled
-values (e.g., `workdir`, `workspace`, `session`, `log_file`). This can break on
-spaces and allows unintended shell interpretation if values contain metacharacters.
+**Status:** `exec.py` now uses `shlex.quote()` for workdir, workspace, and tmux
+session names. Other commands (`monitor.py`, `clean.py`, `env.py`) still use
+unquoted values in shell strings.
 
-**Affected paths:**
-- `tools/rpod/commands/exec.py`
-- `tools/rpod/commands/monitor.py`
-- `tools/rpod/commands/clean.py`
-- `tools/rpod/commands/env.py`
+**Remaining affected paths:**
+- `src/rpod/commands/monitor.py`
+- `src/rpod/commands/clean.py`
+- `src/rpod/commands/env.py`
 
 **Potential fix:**
-- Shell-escape paths and identifiers (e.g., `shlex.quote`) or validate/whitelist
-  allowed characters for names/paths.
+- Apply `shlex.quote` to remaining user-controlled values in shell strings.
 
 ### 0.1 rsync SSH key path not shell-escaped
 

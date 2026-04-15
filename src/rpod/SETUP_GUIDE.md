@@ -35,7 +35,8 @@ rpod terminate <name>               # Destroy pod permanently
 
 # Pod management
 rpod list                           # Show registered pods
-rpod list --refresh                 # Update status from API
+rpod list                           # Show pods (auto-refreshes from API)
+rpod list --no-refresh              # Use cached status (faster)
 rpod connect <name>                 # Interactive SSH
 rpod status <name>                  # GPU/disk/process info
 
@@ -73,21 +74,18 @@ rpod stop dev              # When done (or: rpod terminate dev)
 
 ## Configuration
 
-**Push excludes** - Default: `.venv`, `.git`, `__pycache__`, `*.pyc`, `.env`, `local`
+**Push excludes** - Base excludes always applied: `.venv`, `.git`, `__pycache__`, `*.pyc`, `.env`, `local`
 
-Override via environment variable (comma-separated, replaces defaults):
-```bash
-export RPOD_PUSH_EXCLUDES=".venv,.git,__pycache__,*.pyc,.env,local,node_modules"
-```
-
-Or add extra excludes via CLI (adds to defaults):
+Add extra excludes via `.rpod.yaml` `push_excludes` or CLI:
 ```bash
 rpod push dev --exclude node_modules dist
 ```
+
+By default, push does not delete remote files. Use `--clean` to enable deletion, `--dry-run` to preview.
 
 ## Notes
 
 - Tmux isn't installed by default on RunPod images - run `rpod setup` after creating a pod
 - Tools installed via apt are lost on stop/start (only `/workspace` persists)
-- SSH port can change after stop/start; use `rpod api-pods <id>` to check new port
+- SSH port can change after stop/start; `rpod list` auto-refreshes IP/port from the API
 - Full documentation: `tools/rpod/README.md`
