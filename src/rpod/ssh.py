@@ -252,16 +252,18 @@ class SSHConnection:
         cmd.append(f"{self.pod.ssh_host}:{remote_path}/")
 
         try:
-            # Don't capture output so progress is shown to user
+            # Capture stderr for diagnostics; stdout (progress) goes to terminal
             result = subprocess.run(
                 cmd,
+                stderr=subprocess.PIPE,
+                text=True,
                 timeout=timeout,
             )
             return SSHResult(
                 success=result.returncode == 0,
                 returncode=result.returncode,
                 stdout="",
-                stderr="" if result.returncode == 0 else "rsync failed",
+                stderr=result.stderr.strip() if result.returncode != 0 else "",
             )
         except subprocess.TimeoutExpired:
             return SSHResult(
@@ -292,16 +294,18 @@ class SSHConnection:
         ]
 
         try:
-            # Don't capture output so progress is shown to user
+            # Capture stderr for diagnostics; stdout (progress) goes to terminal
             result = subprocess.run(
                 cmd,
+                stderr=subprocess.PIPE,
+                text=True,
                 timeout=timeout,
             )
             return SSHResult(
                 success=result.returncode == 0,
                 returncode=result.returncode,
                 stdout="",
-                stderr="" if result.returncode == 0 else "rsync failed",
+                stderr=result.stderr.strip() if result.returncode != 0 else "",
             )
         except subprocess.TimeoutExpired:
             return SSHResult(

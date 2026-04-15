@@ -27,7 +27,10 @@ def _generate_setup_script(
     # Generate extra env exports for .rpod-env.sh
     extra_exports = ""
     if env_vars:
-        extra_exports = "\n".join(f'export {k}="{v}"' for k, v in env_vars.items())
+        # Escape values to prevent shell injection from .rpod.yaml env_vars
+        def _escape_val(v: str) -> str:
+            return v.replace("\\", "\\\\").replace('"', '\\"').replace("`", "\\`").replace("$", "\\$")
+        extra_exports = "\n".join(f'export {k}="{_escape_val(v)}"' for k, v in env_vars.items())
         extra_exports = f"\n# Project-specific env vars from .rpod.yaml\n{extra_exports}\n"
 
     # Generate dataset clone commands

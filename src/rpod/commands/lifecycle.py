@@ -48,8 +48,13 @@ def resolve_pod(
     try:
         status = api.get_pod(name_or_id)
         return status.pod_id, None
-    except RunPodAPIError:
-        pass
+    except RunPodAPIError as e:
+        error_msg = str(e).lower()
+        # Surface auth/network errors instead of masking them as "not found"
+        if "401" in error_msg or "403" in error_msg or "unauthorized" in error_msg:
+            raise ValueError(f"API authentication failed: {e}")
+        if "connection error" in error_msg or "urlopen" in error_msg:
+            raise ValueError(f"API connection failed: {e}")
 
     raise ValueError(
         f"'{name_or_id}' not found as registry name, registry pod ID, or RunPod API pod ID"
@@ -370,7 +375,7 @@ def cmd_stop(names: list[str]) -> int:
         try:
             api.stop_pod(pod_id)
             if reg_name:
-                registry.update(reg_name, status="STOPPED", ip=None, port=22)
+                registry.update(reg_name, status="STOPPED", ip=None)
             results.append((label, True, "stopped"))
         except RunPodAPIError as e:
             results.append((label, False, str(e)))

@@ -1,5 +1,6 @@
 """Monitoring commands: status, jobs, logs, kill-session."""
 
+import shlex
 import subprocess
 import sys
 
@@ -194,7 +195,8 @@ def cmd_logs(
     ssh = SSHConnection(pod)
 
     # Check if session exists
-    check_result = ssh.run(f"tmux has-session -t {session} 2>/dev/null && echo exists")
+    qs = shlex.quote(session)
+    check_result = ssh.run(f"tmux has-session -t {qs} 2>/dev/null && echo exists")
     if "exists" not in check_result.stdout:
         print(f"Error: Tmux session '{session}' not found", file=sys.stderr)
         # List available sessions to help the user
@@ -227,8 +229,8 @@ def cmd_logs(
         # Use a loop to repeatedly capture pane content, exit if session dies
         cmd = ["ssh"] + ssh_opts + [
             pod.ssh_host,
-            f"while tmux has-session -t {session} 2>/dev/null; do "
-            f"tmux capture-pane -t {session} -p | tail -20; sleep 2; done; "
+            f"while tmux has-session -t {qs} 2>/dev/null; do "
+            f"tmux capture-pane -t {qs} -p | tail -20; sleep 2; done; "
             f"echo 'Session ended'"
         ]
 
@@ -240,7 +242,7 @@ def cmd_logs(
 
     else:
         # Capture pane content
-        result = ssh.run(f"tmux capture-pane -t {session} -p -S -{lines}")
+        result = ssh.run(f"tmux capture-pane -t {qs} -p -S -{lines}")
 
         if result.success:
             # Filter empty lines at the start
@@ -426,7 +428,8 @@ def cmd_kill_session(name: str, session: str) -> int:
     ssh = SSHConnection(pod)
 
     # Check if session exists
-    check_result = ssh.run(f"tmux has-session -t {session} 2>/dev/null && echo exists")
+    qs = shlex.quote(session)
+    check_result = ssh.run(f"tmux has-session -t {qs} 2>/dev/null && echo exists")
     if "exists" not in check_result.stdout:
         print(f"Error: Tmux session '{session}' not found", file=sys.stderr)
         # List available sessions to help the user
@@ -439,7 +442,7 @@ def cmd_kill_session(name: str, session: str) -> int:
         return 1
 
     # Kill the session
-    result = ssh.run(f"tmux kill-session -t {session}")
+    result = ssh.run(f"tmux kill-session -t {qs}")
     if result.success:
         print(f"Killed tmux session '{session}' on {name}")
         return 0
