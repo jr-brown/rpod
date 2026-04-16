@@ -108,7 +108,7 @@ def cmd_create(
         if template_id is None:
             template_id = project_config.default_template_id
         if image is None:
-            image = project_config.default_image or "runpod/ubuntu:22.04"
+            image = project_config.default_image or "runpod/base:1.0.2-ubuntu240"
     else:
         # GPU pod path: use project config defaults
         if gpu_type is None:
